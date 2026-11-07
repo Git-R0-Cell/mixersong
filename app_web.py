@@ -93,7 +93,7 @@ if metodo_entrada == "Subir desde mi PC (.mp3)":
 elif metodo_entrada == "Escribir nombres para descargar":
     texto_canciones = st.text_area("Escribe una canción por línea:", "Daft Punk - One More Time\nStardust - Music Sounds Better With You")
     if texto_canciones:
-        lista_descarga = [c.strip() for c in texto_canciones.split("\n") if c.strip()]
+        lista_descarga = [c.strip() for c in texto_canciones.splitlines() if c.strip()]
 
 # Opción 3: Cargar desde canciones.txt
 else:
