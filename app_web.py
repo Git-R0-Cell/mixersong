@@ -19,7 +19,7 @@ except Exception as e:
 
 st.set_page_config(page_title="IA DJ Mix Generator - Ultimate", page_icon="🎧", layout="centered")
 
-st.title("🎧 Generador de Mixes con IA Local (v3.0 Pro)")
+st.title("🎧 Generador de Mixes con IA Local (v3.1 Pro)")
 st.write("Crea mezclas profesionales con análisis de BPM, tonalidad armónica, efectos sintéticos y gráficas de onda.")
 
 # --- BARRA LATERAL: CONFIGURACIÓN PRO ---
@@ -89,10 +89,12 @@ if metodo_entrada == "Subir desde mi PC (.mp3)":
             archivos_para_mezclar.append(ruta_guardado)
         st.success(f"Se cargaron {len(archivos_para_mezclar)} archivos locales listos.")
 
-# Opción 2: Escribir lista para descargar
+# Opción 2: Escribir lista para descargar (Optimizado para Celulares)
 elif metodo_entrada == "Escribir nombres para descargar":
-    texto_canciones = st.text_area("Escribe una canción por línea:", "Robbie Williams - Feel\Eros Ramazzotti, Tina Turner - Cosas de la Vida")
+    texto_default = "E nomine - vater unser\nRammstein - du hast"
+    texto_canciones = st.text_area("Escribe una canción por línea:", value=texto_default, height=120)
     if texto_canciones:
+        # splitlines() limpia adecuadamente los caracteres de retorno del celular (\r\n)
         lista_descarga = [c.strip() for c in texto_canciones.splitlines() if c.strip()]
 
 # Opción 3: Cargar desde canciones.txt
@@ -137,15 +139,13 @@ def recortar_silencios(audio, silence_threshold=-40):
     return end_trimmed
 
 def ajustar_volumen(audio, target_dbfs=-14.0):
-    """Ajusta el volumen de forma segura evitando errores de dbfs en audio sintético"""
+    """Ajusta el volumen de forma segura evitando errores de dbfs"""
     try:
         if hasattr(audio, 'dbfs') and audio.dbfs is not None and not np.isnan(audio.dbfs):
             change_in_dbfs = target_dbfs - audio.dbfs
             return audio.apply_gain(change_in_dbfs)
     except Exception:
         pass
-    
-    # Si falla el cálculo estándar de pydub, retornamos el audio sin modificar gain para evitar que rompa la app
     return audio
 
 def detectar_tonalidad(y, sr):
@@ -201,13 +201,13 @@ def generar_grafico_forma_onda(ruta_mp3):
 
 # --- PROCESAMIENTO DEL MIX ---
 
-if st.button("🚀 Generar Mix Automático (v3.0 Pro)"):
+if st.button("🚀 Generar Mix Automático (v3.1 Pro)"):
     progress_bar = st.progress(0)
     status_text = st.empty()
 
     if metodo_entrada in ["Escribir nombres para descargar", "Cargar desde canciones.txt"]:
-        if not lista_descarga:
-            st.error("Por favor, ingresa al menos una canción.")
+        if not lista_descarga or len(lista_descarga) < 2:
+            st.error("Por favor, ingresa al menos 2 canciones en líneas separadas.")
             st.stop()
             
         carpeta_destino = "downloads"
@@ -216,6 +216,7 @@ if st.button("🚀 Generar Mix Automático (v3.0 Pro)"):
         os.makedirs(carpeta_destino, exist_ok=True)
 
         status_text.text("📥 Descargando canciones actuales...")
+        archivos_descargados = []
         for i, cancion in enumerate(lista_descarga):
             nombre_base = f"song_{i+1:02d}"
             plantilla_salida = os.path.join(carpeta_destino, f"{nombre_base}.%(ext)s")
@@ -230,12 +231,14 @@ if st.button("🚀 Generar Mix Automático (v3.0 Pro)"):
             
             archivo_mp3 = os.path.join(carpeta_destino, f"{nombre_base}.mp3")
             if os.path.exists(archivo_mp3):
-                archivos_para_mezclar.append(archivo_mp3)
+                archivos_descargados.append(archivo_mp3)
                 
-            progress_bar.progress(int((i + 1) / len(lista_descarga) * 25))
+            progress_bar.progress(int((i + 1) / len(lista_descarga) * 30))
+
+        archivos_para_mezclar = archivos_descargados
 
     if len(archivos_para_mezclar) < 2:
-        st.error("Necesitas al menos 2 canciones para realizar una mezcla.")
+        st.error("Necesitas al menos 2 canciones para realizar una mezcla. Verifica la descarga.")
     else:
         # 1. Análisis de BPM y Tonalidad (Key)
         status_text.text("🎼 Analizando BPMs y Tonalidad Armónica...")
@@ -264,7 +267,7 @@ if st.button("🚀 Generar Mix Automático (v3.0 Pro)"):
         elif criterio_orden == "🎵 Mezcla Armónica (por Tonalidad / Key)":
             analisis.sort(key=lambda x: x["key"])
             
-        progress_bar.progress(50)
+        progress_bar.progress(60)
 
         # 2. Recorte y Procesamiento de Pistas
         status_text.text("🎚️ Aplicando Gain Matching y procesando silencios...")
