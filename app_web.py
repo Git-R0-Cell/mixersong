@@ -1,4 +1,6 @@
 import os
+import sys
+import glob
 import shutil
 import subprocess
 import streamlit as st
@@ -10,11 +12,14 @@ from pydub import AudioSegment
 from pydub.silence import detect_leading_silence
 
 # --- CONFIGURACIÓN DE FFMPEG PARA STREAMLIT CLOUD ---
+FFMPEG_EXE = shutil.which("ffmpeg")
 try:
     import imageio_ffmpeg
-    AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
-except Exception as e:
+    FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
+except Exception:
     pass
+if FFMPEG_EXE:
+    AudioSegment.converter = FFMPEG_EXE
 # ---------------------------------------------------
 
 st.set_page_config(page_title="IA DJ Mix Generator - Ultimate", page_icon="🎧", layout="centered")
@@ -56,6 +61,19 @@ usar_dj_drop = st.sidebar.checkbox("🗣️ Insertar DJ Drop / Jingle personal",
 archivo_jingle = None
 if usar_dj_drop:
     archivo_jingle = st.sidebar.file_uploader("Sube tu voz o jingle (.mp3, .wav)", type=["mp3", "wav"])
+
+st.sidebar.markdown("---")
+with st.sidebar.expander("🍪 Cookies de YouTube (opcional)"):
+    st.caption(
+        "Si YouTube bloquea las descargas desde el servidor ('Sign in to confirm you're not a bot'), "
+        "sube aquí un cookies.txt exportado de tu navegador (formato Netscape)."
+    )
+    archivo_cookies = st.file_uploader("cookies.txt", type=["txt"], key="cookies_yt")
+RUTA_COOKIES = None
+if archivo_cookies is not None:
+    RUTA_COOKIES = "cookies_yt.txt"
+    with open(RUTA_COOKIES, "wb") as f:
+        f.write(archivo_cookies.getbuffer())
 
 # Selección del método de entrada
 st.subheader("🎵 Selección de Canciones")
@@ -190,6 +208,80 @@ def generar_grafico_forma_onda(ruta_mp3):
     plt.tight_layout()
     return fig
 
+def _runtime_js():
+    """Ruta de un runtime JS (deno/node) que yt-dlp necesita para YouTube."""
+    for nombre in ("deno", "node"):
+        ruta = shutil.which(nombre) or os.path.join(os.path.dirname(sys.executable), nombre)
+        if ruta and os.path.exists(ruta):
+            return f"{nombre}:{ruta}"
+    return None
+
+def _ultimas_lineas(texto, n=4):
+    lineas = [l for l in (texto or "").splitlines() if l.strip()]
+    return "\n".join(lineas[-n:])
+
+def descargar_cancion(consulta, carpeta, nombre_base):
+    """Descarga una canción como MP3. Devuelve (ruta_mp3 o None, log_de_intentos)."""
+    plantilla = os.path.join(carpeta, f"{nombre_base}.%(ext)s")
+    ruta_mp3 = os.path.join(carpeta, f"{nombre_base}.mp3")
+
+    comando_base = [
+        sys.executable, "-m", "yt_dlp",
+        "--no-playlist", "--no-colors",
+        "--socket-timeout", "20", "--retries", "3",
+        "-x", "--audio-format", "mp3",
+        "-o", plantilla,
+    ]
+    if FFMPEG_EXE:
+        # IMPORTANTE: ruta al ejecutable, NO a la carpeta (el binario de imageio-ffmpeg
+        # se llama 'ffmpeg-linux-x86_64-vX.Y' y yt-dlp no lo detecta dentro de una carpeta).
+        comando_base += ["--ffmpeg-location", FFMPEG_EXE]
+    js = _runtime_js()
+    if js:
+        comando_base += ["--js-runtimes", js]
+
+    cookies_yt = ["--cookies", RUTA_COOKIES] if RUTA_COOKIES else []
+    estrategias = [
+        ("YouTube", f"ytsearch1:{consulta}", cookies_yt),
+        ("YouTube (clientes alternos)", f"ytsearch1:{consulta}",
+         cookies_yt + ["--extractor-args", "youtube:player_client=tv,mweb"]),
+        ("SoundCloud", f"scsearch1:{consulta}", []),
+    ]
+
+    log = []
+    for nombre_estrategia, busqueda, extra in estrategias:
+        # limpiar restos de intentos anteriores
+        for resto in glob.glob(os.path.join(carpeta, f"{nombre_base}.*")):
+            os.remove(resto)
+        try:
+            r = subprocess.run(comando_base + extra + [busqueda],
+                               capture_output=True, text=True, timeout=300)
+            salida = (r.stderr or "") + "\n" + (r.stdout or "")
+        except subprocess.TimeoutExpired:
+            log.append(f"[{nombre_estrategia}] Tiempo de espera agotado.")
+            continue
+        except Exception as e:
+            log.append(f"[{nombre_estrategia}] No se pudo ejecutar yt-dlp: {e}")
+            continue
+
+        if os.path.exists(ruta_mp3):
+            return ruta_mp3, log
+
+        # Si bajó el audio pero no se convirtió a mp3, convertir nosotros con ffmpeg
+        sobrantes = [f for f in glob.glob(os.path.join(carpeta, f"{nombre_base}.*"))
+                     if not f.endswith((".part", ".ytdl"))]
+        if sobrantes and FFMPEG_EXE:
+            conv = subprocess.run([FFMPEG_EXE, "-y", "-i", sobrantes[0], "-vn",
+                                   "-codec:a", "libmp3lame", "-q:a", "2", ruta_mp3],
+                                  capture_output=True, text=True)
+            if os.path.exists(ruta_mp3):
+                return ruta_mp3, log
+            salida += "\n" + (conv.stderr or "")
+
+        log.append(f"[{nombre_estrategia}] {_ultimas_lineas(salida)}")
+
+    return None, log
+
 # --- PROCESAMIENTO DEL MIX ---
 
 if st.button("🚀 Generar Mix Automático (v3.1 Pro)"):
@@ -206,29 +298,25 @@ if st.button("🚀 Generar Mix Automático (v3.1 Pro)"):
             shutil.rmtree(carpeta_destino)
         os.makedirs(carpeta_destino, exist_ok=True)
 
-        ffmpeg_path = os.path.dirname(imageio_ffmpeg.get_ffmpeg_exe())
-
         status_text.text("📥 Descargando canciones actuales...")
         archivos_descargados = []
+        errores_descarga = {}
         for i, cancion in enumerate(lista_descarga):
             nombre_base = f"song_{i+1:02d}"
-            plantilla_salida = os.path.join(carpeta_destino, f"{nombre_base}.%(ext)s")
-            
-            comando = [
-                "yt-dlp",
-                f"ytsearch1:{cancion}",
-                "-x", "--audio-format", "mp3",
-                "--ffmpeg-location", ffmpeg_path,
-                "--extractor-args", "youtube:player_client=android",
-                "-o", plantilla_salida
-            ]
-            subprocess.run(comando)
-            
-            archivo_mp3 = os.path.join(carpeta_destino, f"{nombre_base}.mp3")
-            if os.path.exists(archivo_mp3):
+            status_text.text(f"📥 Descargando ({i+1}/{len(lista_descarga)}): {cancion}")
+            archivo_mp3, log_intentos = descargar_cancion(cancion, carpeta_destino, nombre_base)
+            if archivo_mp3:
                 archivos_descargados.append(archivo_mp3)
-                
+            else:
+                errores_descarga[cancion] = log_intentos
+
             progress_bar.progress(int((i + 1) / len(lista_descarga) * 30))
+
+        if errores_descarga:
+            with st.expander("⚠️ Detalle de las descargas que fallaron", expanded=True):
+                for cancion, log_intentos in errores_descarga.items():
+                    st.markdown(f"**{cancion}**")
+                    st.code("\n\n".join(log_intentos) or "Sin información de error.", language=None)
 
         archivos_para_mezclar = archivos_descargados
 
