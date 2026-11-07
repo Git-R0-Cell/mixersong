@@ -7,11 +7,17 @@ import numpy as np
 from pydub import AudioSegment
 from pydub.silence import detect_leading_silence
 
-# --- CONFIGURACIÓN AUTOMÁTICA DE FFPEG PARA STREAMLIT CLOUD ---
+# --- CONFIGURACIÓN DE FFMEG Y FFPROBE PARA STREAMLIT CLOUD ---
 try:
     import imageio_ffmpeg
-    AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
-except ImportError:
+    ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+    
+    # Asignar el ejecutable de ffmpeg
+    AudioSegment.converter = ffmpeg_bin
+    
+    # Asignar ffmpeg como fallback para ffprobe en pydub
+    AudioSegment.ffprobe = ffmpeg_bin
+except Exception as e:
     pass
 # -------------------------------------------------------------
 
