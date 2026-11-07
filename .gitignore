@@ -1,0 +1,7 @@
+downloads/
+uploads_locales/
+output/
+__pycache__/
+venv/
+.venv/
+.DS_Store
