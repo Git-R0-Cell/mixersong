@@ -7,19 +7,13 @@ import numpy as np
 from pydub import AudioSegment
 from pydub.silence import detect_leading_silence
 
-# --- CONFIGURACIÓN DE FFMEG Y FFPROBE PARA STREAMLIT CLOUD ---
+# --- CONFIGURACIÓN DE FFMPEG PARA STREAMLIT CLOUD ---
 try:
     import imageio_ffmpeg
-    ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
-    
-    # Asignar el ejecutable de ffmpeg
-    AudioSegment.converter = ffmpeg_bin
-    
-    # Asignar ffmpeg como fallback para ffprobe en pydub
-    AudioSegment.ffprobe = ffmpeg_bin
+    AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
 except Exception as e:
     pass
-# -------------------------------------------------------------
+# ---------------------------------------------------
 
 st.set_page_config(page_title="IA DJ Mix Generator", page_icon="🎧", layout="centered")
 
@@ -77,6 +71,25 @@ else:
         with open("canciones.txt", "w", encoding="utf-8") as f:
             f.write("Daft Punk - One More Time\nStardust - Music Sounds Better With You")
         lista_descarga = ["Daft Punk - One More Time", "Stardust - Music Sounds Better With You"]
+
+def cargar_audio_seguro(ruta):
+    """Carga el audio usando librosa para evitar depender de ffprobe de pydub"""
+    y, sr = librosa.load(ruta, sr=None, mono=False)
+    if y.ndim == 2:
+        y = y.T  # Formato interleaved
+        channels = 2
+    else:
+        channels = 1
+    
+    # Convertir a PCM de 16 bits
+    y_int16 = np.clip(y * 32767, -32768, 32767).astype(np.int16)
+    
+    return AudioSegment(
+        y_int16.tobytes(),
+        frame_rate=int(sr),
+        sample_width=2,
+        channels=channels
+    )
 
 def recortar_silencios(audio, silence_threshold=-40):
     """Elimina silencios al inicio y al final de la canción"""
@@ -145,13 +158,14 @@ if st.button("🚀 Generar Mix Automático"):
         os.makedirs("output", exist_ok=True)
         archivo_salida = "output/mix_final.mp3"
 
-        audio_primero = AudioSegment.from_file(analisis[0][0])
+        # Usar la nueva función de carga segura sin ffprobe
+        audio_primero = cargar_audio_seguro(analisis[0][0])
         mix = recortar_silencios(audio_primero, silence_threshold=umbral_silencio)
         
         ms_crossfade = duracion_crossfade_seg * 1000
 
         for i in range(1, len(analisis)):
-            siguiente_audio = AudioSegment.from_file(analisis[i][0])
+            siguiente_audio = cargar_audio_seguro(analisis[i][0])
             siguiente_recortado = recortar_silencios(siguiente_audio, silence_threshold=umbral_silencio)
             mix = mix.append(siguiente_recortado, crossfade=ms_crossfade)
 
