@@ -45,7 +45,6 @@ criterio_orden = st.sidebar.selectbox(
 st.sidebar.markdown("---")
 st.sidebar.header("✨ Efectos y Marca de Agua")
 
-# OPCIÓN 1: Efectos sintéticos IA
 usar_efectos_ia = st.sidebar.checkbox("🚀 Generar efecto sintético de transición (IA)", value=False)
 tipo_efecto = st.sidebar.selectbox(
     "Tipo de efecto:",
@@ -53,7 +52,6 @@ tipo_efecto = st.sidebar.selectbox(
     disabled=not usar_efectos_ia
 )
 
-# OPCIÓN 2: DJ Drop / Jingle
 usar_dj_drop = st.sidebar.checkbox("🗣️ Insertar DJ Drop / Jingle personal", value=False)
 archivo_jingle = None
 if usar_dj_drop:
@@ -94,7 +92,6 @@ elif metodo_entrada == "Escribir nombres para descargar":
     texto_default = "E nomine - vater unser\nRammstein - du hast"
     texto_canciones = st.text_area("Escribe una canción por línea:", value=texto_default, height=120)
     if texto_canciones:
-        # splitlines() limpia adecuadamente los caracteres de retorno del celular (\r\n)
         lista_descarga = [c.strip() for c in texto_canciones.splitlines() if c.strip()]
 
 # Opción 3: Cargar desde canciones.txt
@@ -112,7 +109,6 @@ else:
 # --- FUNCIONES TÉCNICAS DE AUDIO ---
 
 def cargar_audio_seguro(ruta):
-    """Carga audio con librosa evitando dependencias de ffprobe"""
     y, sr = librosa.load(ruta, sr=None, mono=False)
     if y.ndim == 2:
         y = y.T
@@ -129,7 +125,6 @@ def cargar_audio_seguro(ruta):
     )
 
 def recortar_silencios(audio, silence_threshold=-40):
-    """Elimina silencios al inicio y al final"""
     def trim_leading(sound):
         leading_silence = detect_leading_silence(sound, silence_threshold=silence_threshold)
         return sound[leading_silence:]
@@ -139,7 +134,6 @@ def recortar_silencios(audio, silence_threshold=-40):
     return end_trimmed
 
 def ajustar_volumen(audio, target_dbfs=-14.0):
-    """Ajusta el volumen de forma segura evitando errores de dbfs"""
     try:
         if hasattr(audio, 'dbfs') and audio.dbfs is not None and not np.isnan(audio.dbfs):
             change_in_dbfs = target_dbfs - audio.dbfs
@@ -149,7 +143,6 @@ def ajustar_volumen(audio, target_dbfs=-14.0):
     return audio
 
 def detectar_tonalidad(y, sr):
-    """Detecta la clave/tonalidad armónica de una pista (C, C#, D, etc.)"""
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
     chroma_vals = np.sum(chroma, axis=1)
     notas = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -157,7 +150,6 @@ def detectar_tonalidad(y, sr):
     return notas[tonalidad_idx]
 
 def generar_efecto_sintetizado(estilo="Laser Synth Drop", duracion_ms=1200, sr=44100):
-    """Sintetiza efectos de audio con matemáticas en NumPy"""
     num_samples = int(sr * (duracion_ms / 1000.0))
     t = np.linspace(0, duracion_ms / 1000.0, num_samples)
     
@@ -168,7 +160,7 @@ def generar_efecto_sintetizado(estilo="Laser Synth Drop", duracion_ms=1200, sr=4
         ruido = np.random.uniform(-0.5, 0.5, num_samples)
         envelope = np.sin(np.pi * t / (duracion_ms / 1000.0))
         audio_np = ruido * envelope * 0.4
-    else:  # BPM Beeps
+    else:
         audio_np = np.zeros(num_samples)
         pasos = 4
         sub_len = num_samples // pasos
@@ -186,7 +178,6 @@ def generar_efecto_sintetizado(estilo="Laser Synth Drop", duracion_ms=1200, sr=4
     return AudioSegment(y_int16.tobytes(), frame_rate=sr, sample_width=2, channels=1)
 
 def generar_grafico_forma_onda(ruta_mp3):
-    """Genera una imagen con la forma de onda del mix procesado"""
     y, sr = librosa.load(ruta_mp3, sr=22050)
     fig, ax = plt.subplots(figsize=(10, 3))
     librosa.display.waveshow(y, sr=sr, ax=ax, color="#1DB954", alpha=0.8)
@@ -210,13 +201,11 @@ if st.button("🚀 Generar Mix Automático (v3.1 Pro)"):
             st.error("Por favor, ingresa al menos 2 canciones en líneas separadas.")
             st.stop()
             
-carpeta_destino = "downloads"
+        carpeta_destino = "downloads"
         if os.path.exists(carpeta_destino):
             shutil.rmtree(carpeta_destino)
         os.makedirs(carpeta_destino, exist_ok=True)
 
-        # Obtener la ruta del ejecutable de ffmpeg para yt-dlp
-        import imageio_ffmpeg
         ffmpeg_path = os.path.dirname(imageio_ffmpeg.get_ffmpeg_exe())
 
         status_text.text("📥 Descargando canciones actuales...")
@@ -245,7 +234,6 @@ carpeta_destino = "downloads"
     if len(archivos_para_mezclar) < 2:
         st.error("Necesitas al menos 2 canciones para realizar una mezcla. Verifica la descarga.")
     else:
-        # 1. Análisis de BPM y Tonalidad (Key)
         status_text.text("🎼 Analizando BPMs y Tonalidad Armónica...")
         analisis = []
         for archivo in archivos_para_mezclar:
@@ -264,7 +252,6 @@ carpeta_destino = "downloads"
                 "key": key_detectada
             })
         
-        # Aplicar orden seleccionado
         if criterio_orden == "Ascendente por BPM (de menor a mayor)":
             analisis.sort(key=lambda x: x["bpm"])
         elif criterio_orden == "Descendente por BPM (de mayor a menor)":
@@ -274,7 +261,6 @@ carpeta_destino = "downloads"
             
         progress_bar.progress(60)
 
-        # 2. Recorte y Procesamiento de Pistas
         status_text.text("🎚️ Aplicando Gain Matching y procesando silencios...")
         os.makedirs("output", exist_ok=True)
         archivo_salida = "output/mix_final.mp3"
@@ -291,7 +277,6 @@ carpeta_destino = "downloads"
 
         ms_crossfade = duracion_crossfade_seg * 1000
 
-        # Cargar DJ Drop si fue subido
         jingle_audio = None
         if usar_dj_drop and archivo_jingle is not None:
             ruta_jingle_temp = "temp_jingle.mp3"
@@ -301,7 +286,6 @@ carpeta_destino = "downloads"
             if normalizar_audio:
                 jingle_audio = ajustar_volumen(jingle_audio)
 
-        # Construcción y Ensamblaje del Mix
         status_text.text("🔀 Mezclando pistas con efectos y transiciones...")
         mix = segmentos_procesados[0]
         duracion_total_ms = len(segmentos_procesados[0])
@@ -309,7 +293,6 @@ carpeta_destino = "downloads"
         for idx in range(1, len(segmentos_procesados)):
             siguiente_pista = segmentos_procesados[idx]
             
-            # Si hay efectos sintéticos o DJ drop, los overlay en la transición
             if usar_efectos_ia or jingle_audio:
                 efecto_transicion = None
                 
@@ -328,7 +311,6 @@ carpeta_destino = "downloads"
         mix.export(archivo_salida, format="mp3")
         progress_bar.progress(85)
 
-        # 3. Renderear Gráfica de Onda
         status_text.text("📈 Generando previsualización de forma de onda...")
         figura_onda = generar_grafico_forma_onda(archivo_salida)
         progress_bar.progress(100)
@@ -336,7 +318,6 @@ carpeta_destino = "downloads"
 
         st.success(f"¡Tu mix de {len(analisis)} canciones está listo!")
 
-        # Muestra de Duración y Lista Armónica
         minutos = int(duracion_total_ms // 60000)
         segundos = int((duracion_total_ms % 60000) // 1000)
         
