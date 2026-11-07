@@ -137,9 +137,16 @@ def recortar_silencios(audio, silence_threshold=-40):
     return end_trimmed
 
 def ajustar_volumen(audio, target_dbfs=-14.0):
-    """Ajusta el volumen a un nivel estándar"""
-    change_in_dbfs = target_dbfs - audio.dbfs
-    return audio.apply_gain(change_in_dbfs)
+    """Ajusta el volumen de forma segura evitando errores de dbfs en audio sintético"""
+    try:
+        if hasattr(audio, 'dbfs') and audio.dbfs is not None and not np.isnan(audio.dbfs):
+            change_in_dbfs = target_dbfs - audio.dbfs
+            return audio.apply_gain(change_in_dbfs)
+    except Exception:
+        pass
+    
+    # Si falla el cálculo estándar de pydub, retornamos el audio sin modificar gain para evitar que rompa la app
+    return audio
 
 def detectar_tonalidad(y, sr):
     """Detecta la clave/tonalidad armónica de una pista (C, C#, D, etc.)"""
