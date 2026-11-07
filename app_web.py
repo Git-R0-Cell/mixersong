@@ -7,6 +7,14 @@ import numpy as np
 from pydub import AudioSegment
 from pydub.silence import detect_leading_silence
 
+# --- CONFIGURACIÓN AUTOMÁTICA DE FFPEG PARA STREAMLIT CLOUD ---
+try:
+    import imageio_ffmpeg
+    AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
+except ImportError:
+    pass
+# -------------------------------------------------------------
+
 st.set_page_config(page_title="IA DJ Mix Generator", page_icon="🎧", layout="centered")
 
 st.title("🎧 Generador de Mixes con IA Local")
