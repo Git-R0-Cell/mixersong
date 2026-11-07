@@ -18,12 +18,22 @@ except Exception as e:
 st.set_page_config(page_title="IA DJ Mix Generator", page_icon="🎧", layout="centered")
 
 st.title("🎧 Generador de Mixes con IA Local")
-st.write("Mezcla canciones desde la web o directamente desde tu computadora de forma 100% gratuita.")
+st.write("Mezcla canciones desde la web o desde tu equipo con análisis de BPM, normalización y crossfade ajustables.")
 
-# Configuración de opciones en la barra lateral
-st.sidebar.header("🎛️ Configuración de Mezcla")
+# --- BARRA LATERAL: CONFIGURACIÓN PRO ---
+st.sidebar.header("🎛️ Configuración del Mix")
+
 duracion_crossfade_seg = st.sidebar.slider("Tiempo de Crossfade (segundos)", min_value=1, max_value=15, value=6)
 umbral_silencio = st.sidebar.slider("Sensibilidad de Silencio (dBFS)", min_value=-60, max_value=-20, value=-40)
+
+# FUNCIÓN 1: Normalizador de volumen
+normalizar_audio = st.sidebar.checkbox("🔊 Normalizar volumen (mismo nivel para todas)", value=True)
+
+# FUNCIÓN 2: Selector de orden de mezcla
+criterio_orden = st.sidebar.selectbox(
+    "📊 Orden de las canciones:",
+    ["Ascendente por BPM (de menor a mayor)", "Descendente por BPM (de mayor a menor)", "Orden original (sin reordenar)"]
+)
 
 # Selección del método de entrada
 st.subheader("🎵 Selección de Canciones")
@@ -33,8 +43,9 @@ metodo_entrada = st.radio(
 )
 
 archivos_para_mezclar = []
+lista_descarga = []
 
-# Opción 1: Subir directamente desde la PC
+# Opción 1: Subir desde la PC
 if metodo_entrada == "Subir desde mi PC (.mp3)":
     archivos_subidos = st.file_uploader(
         "Selecciona 2 o más archivos de audio MP3 desde tu equipo:",
@@ -73,17 +84,15 @@ else:
         lista_descarga = ["Daft Punk - One More Time", "Stardust - Music Sounds Better With You"]
 
 def cargar_audio_seguro(ruta):
-    """Carga el audio usando librosa para evitar depender de ffprobe de pydub"""
+    """Carga audio con librosa evitando dependencias de ffprobe"""
     y, sr = librosa.load(ruta, sr=None, mono=False)
     if y.ndim == 2:
-        y = y.T  # Formato interleaved
+        y = y.T
         channels = 2
     else:
         channels = 1
     
-    # Convertir a PCM de 16 bits
     y_int16 = np.clip(y * 32767, -32768, 32767).astype(np.int16)
-    
     return AudioSegment(
         y_int16.tobytes(),
         frame_rate=int(sr),
@@ -92,7 +101,7 @@ def cargar_audio_seguro(ruta):
     )
 
 def recortar_silencios(audio, silence_threshold=-40):
-    """Elimina silencios al inicio y al final de la canción"""
+    """Elimina silencios al inicio y al final"""
     def trim_leading(sound):
         leading_silence = detect_leading_silence(sound, silence_threshold=silence_threshold)
         return sound[leading_silence:]
@@ -101,11 +110,16 @@ def recortar_silencios(audio, silence_threshold=-40):
     end_trimmed = trim_leading(start_trimmed.reverse()).reverse()
     return end_trimmed
 
+def ajustar_volumen(audio, target_dbfs=-14.0):
+    """Ajusta el volumen del audio a un nivel estandarizado"""
+    change_in_dbfs = target_dbfs - audio.dbfs
+    return audio.apply_gain(change_in_dbfs)
+
 if st.button("🚀 Generar Mix Automático"):
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    # Si elegimos descargar de la web
+    # Descarga web si corresponde
     if metodo_entrada in ["Escribir nombres para descargar", "Cargar desde canciones.txt"]:
         if not lista_descarga:
             st.error("Por favor, ingresa al menos una canción.")
@@ -133,47 +147,80 @@ if st.button("🚀 Generar Mix Automático"):
             if os.path.exists(archivo_mp3):
                 archivos_para_mezclar.append(archivo_mp3)
                 
-            progress_bar.progress(int((i + 1) / len(lista_descarga) * 35))
+            progress_bar.progress(int((i + 1) / len(lista_descarga) * 30))
 
-    # Validación de archivos
     if len(archivos_para_mezclar) < 2:
         st.error("Necesitas al menos 2 canciones para realizar una mezcla.")
     else:
-        # 1. Análisis de BPM con IA Local
-        status_text.text("🎧 Analizando BPMs con IA local (librosa)...")
+        # 1. Análisis de BPM con librosa
+        status_text.text("🎧 Analizando tempos (BPM) con librosa...")
         analisis = []
         for archivo in archivos_para_mezclar:
             y, sr = librosa.load(archivo)
             tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
             if isinstance(tempo, np.ndarray):
                 tempo = tempo[0]
-            analisis.append((archivo, float(tempo)))
+            
+            nombre_pista = os.path.basename(archivo)
+            analisis.append({
+                "ruta": archivo,
+                "nombre": nombre_pista,
+                "bpm": float(tempo)
+            })
         
-        # Ordenar canciones por velocidad (BPM)
-        analisis.sort(key=lambda x: x[1])
-        progress_bar.progress(65)
+        # FUNCIÓN 2: Aplicar orden seleccionado
+        if criterio_orden == "Ascendente por BPM (de menor a mayor)":
+            analisis.sort(key=lambda x: x["bpm"])
+        elif criterio_orden == "Descendente por BPM (de mayor a menor)":
+            analisis.sort(key=lambda x: x["bpm"], reverse=True)
+            
+        progress_bar.progress(60)
 
-        # 2. Recorte de silencios y Mezcla
-        status_text.text("✂️ Recortando silencios y aplicando crossfade...")
+        # 2. Recorte, Normalización y Mezcla
+        status_text.text("🎚️ Procesando audios y aplicando crossfade...")
         os.makedirs("output", exist_ok=True)
         archivo_salida = "output/mix_final.mp3"
 
-        # Usar la nueva función de carga segura sin ffprobe
-        audio_primero = cargar_audio_seguro(analisis[0][0])
-        mix = recortar_silencios(audio_primero, silence_threshold=umbral_silencio)
-        
+        segmentos_procesados = []
+        duracion_total_ms = 0
+
+        for item in analisis:
+            audio = cargar_audio_seguro(item["ruta"])
+            audio = recortar_silencios(audio, silence_threshold=umbral_silencio)
+            
+            # FUNCIÓN 1: Normalizar volumen opcional
+            if normalizar_audio:
+                audio = ajustar_volumen(audio)
+                
+            segmentos_procesados.append(audio)
+
         ms_crossfade = duracion_crossfade_seg * 1000
 
-        for i in range(1, len(analisis)):
-            siguiente_audio = cargar_audio_seguro(analisis[i][0])
-            siguiente_recortado = recortar_silencios(siguiente_audio, silence_threshold=umbral_silencio)
-            mix = mix.append(siguiente_recortado, crossfade=ms_crossfade)
+        # Construcción del Mix
+        mix = segmentos_procesados[0]
+        duracion_total_ms += len(segmentos_procesados[0])
+
+        for audio_sig in segmentos_procesados[1:]:
+            mix = mix.append(audio_sig, crossfade=ms_crossfade)
+            duracion_total_ms += len(audio_sig) - ms_crossfade
 
         mix.export(archivo_salida, format="mp3")
         progress_bar.progress(100)
         status_text.text("✨ ¡Mix completado con éxito!")
 
-        st.success(f"¡Tu mix con {len(archivos_para_mezclar)} canciones está listo!")
+        st.success(f"¡Tu mix de {len(analisis)} canciones está listo!")
+
+        # FUNCIÓN 3: Panel de estadísticas y visualización previa
+        minutos = int(duracion_total_ms // 60000)
+        segundos = int((duracion_total_ms % 60000) // 1000)
+        
+        st.markdown("### 📊 Detalles del Set")
+        st.info(f"⏱️ **Duración total estimada:** {minutos} min {segundos} seg")
+        
+        with st.expander("📋 Ver orden final de canciones y BPMs", expanded=True):
+            for idx, pista in enumerate(analisis, start=1):
+                st.write(f"**{idx}.** `{pista['nombre']}` — **{pista['bpm']:.1f} BPM**")
+
         st.audio(archivo_salida)
         
         with open(archivo_salida, "rb") as file:
