@@ -210,10 +210,14 @@ if st.button("🚀 Generar Mix Automático (v3.1 Pro)"):
             st.error("Por favor, ingresa al menos 2 canciones en líneas separadas.")
             st.stop()
             
-        carpeta_destino = "downloads"
+carpeta_destino = "downloads"
         if os.path.exists(carpeta_destino):
             shutil.rmtree(carpeta_destino)
         os.makedirs(carpeta_destino, exist_ok=True)
+
+        # Obtener la ruta del ejecutable de ffmpeg para yt-dlp
+        import imageio_ffmpeg
+        ffmpeg_path = os.path.dirname(imageio_ffmpeg.get_ffmpeg_exe())
 
         status_text.text("📥 Descargando canciones actuales...")
         archivos_descargados = []
@@ -225,6 +229,7 @@ if st.button("🚀 Generar Mix Automático (v3.1 Pro)"):
                 "yt-dlp",
                 f"ytsearch1:{cancion}",
                 "-x", "--audio-format", "mp3",
+                "--ffmpeg-location", ffmpeg_path,
                 "-o", plantilla_salida
             ]
             subprocess.run(comando)
