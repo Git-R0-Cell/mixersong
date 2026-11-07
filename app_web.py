@@ -87,7 +87,7 @@ if metodo_entrada == "Subir desde mi PC (.mp3)":
             archivos_para_mezclar.append(ruta_guardado)
         st.success(f"Se cargaron {len(archivos_para_mezclar)} archivos locales listos.")
 
-# Opción 2: Escribir lista para descargar (Optimizado para Celulares)
+# Opción 2: Escribir lista para descargar (Optimizado para Celulares con splitlines)
 elif metodo_entrada == "Escribir nombres para descargar":
     texto_default = "E nomine - vater unser\nRammstein - du hast"
     texto_canciones = st.text_area("Escribe una canción por línea:", value=texto_default, height=120)
@@ -219,6 +219,7 @@ if st.button("🚀 Generar Mix Automático (v3.1 Pro)"):
                 f"ytsearch1:{cancion}",
                 "-x", "--audio-format", "mp3",
                 "--ffmpeg-location", ffmpeg_path,
+                "--extractor-args", "youtube:player_client=android",
                 "-o", plantilla_salida
             ]
             subprocess.run(comando)
