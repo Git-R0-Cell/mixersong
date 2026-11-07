@@ -6,3 +6,4 @@ numpy>=1.26.0
 soundfile
 audioop-lts
 imageio-ffmpeg
+matplotlib
